@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Password Strength Analyzer</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body>
+  <div class="wrapper">
+    <div class="card">
+      <h1>PassGuard</h1>
+      <p class="subtitle">Password Strength Analyzer <br> Check the security of your password instantly</p>
+
+      <div class="input-group">
+        <input type="password" id="password" placeholder="Enter your password..." oninput="analyzePassword()" autocomplete="new-password" />
+        <button type="button" id="togglePassword" onclick="togglePasswordVisibility()">👁️</button>
+      </div>
+
+      <div id="strength-meter">
+        <div id="strength-bar"></div>
+      </div>
+
+      <p><strong>Strength:</strong> <span id="strength-text">-</span></p>
+      <p class="time-to-crack">⏳ Estimated Time to Crack: <strong id="time-to-crack">-</strong></p>
+
+      <h3>Suggestions :<span class="suggestion-note">(Get instant tips to strengthen your password on the go)</span></h3>
+      <ul id="feedback-list"></ul>
+    </br>
+
+      <div id="composition-visualizer">
+        <div>
+          <label>Lowercase <span id="count-lower">0%</span></label>
+          <div class="comp-bar-container">
+            <div class="comp-bar-fill" id="comp-lower-fill"></div>
+          </div>
+        </div>
+        <div>
+          <label>Uppercase <span id="count-upper">0%</span></label>
+          <div class="comp-bar-container">
+            <div class="comp-bar-fill" id="comp-upper-fill"></div>
+          </div>
+        </div>
+        <div>
+          <label>Numbers <span id="count-numbers">0%</span></label>
+          <div class="comp-bar-container">
+            <div class="comp-bar-fill" id="comp-numbers-fill"></div>
+          </div>
+        </div>
+        <div>
+          <label>Symbols <span id="count-symbols">0%</span></label>
+          <div class="comp-bar-container">
+            <div class="comp-bar-fill" id="comp-symbols-fill"></div>
+          </div>
+        </div>
+      </div>
+
+      <div id="mfa-status" class="mfa"></div>
+      <div id="strength-explanation" class="explanation"></div>
+
+      <p class="mfa-info">
+      <strong>What is MFA Readiness?</strong><br>MFA (Multi-Factor Authentication) adds extra security by requiring more than just a password to log in. This check tells you if your password is strong enough to work well with MFA for better protection.
+      </p>
+
+      <div id="password-tips" class="tips">
+        <h3>Password Usage Tips:</h3>
+        <ul>
+          <li>Use at least 12 characters.</li>
+          <li>Mix uppercase, lowercase, numbers, and symbols.</li>
+          <li>Avoid common words or predictable sequences.</li>
+          <li>Use unique passwords for different accounts.</li>
+          <li>Consider a password manager for convenience and security.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    function togglePasswordVisibility() {
+      const pwInput = document.getElementById("password");
+      const toggleBtn = document.getElementById("togglePassword");
+      if (pwInput.type === "password") {
+        pwInput.type = "text";
+        toggleBtn.textContent = "🙈";
+      } else {
+        pwInput.type = "password";
+        toggleBtn.textContent = "👁️";
+      }
+    }
+
+    async function analyzePassword() {
+      const password = document.getElementById("password").value;
+      if (!password) return resetDisplay();
+
+      const response = await fetch("/analyze", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password }),
+      });
+      const result = await response.json();
+
+      document.getElementById("strength-text").textContent = result.strength;
+      const bar = document.getElementById("strength-bar");
+      const score = result.score;
+      const colors = ["#dc3545", "#ffc107", "#17a2b8", "#28a745"];
+      bar.style.width = score ? score * 25 + "%" : "0%";
+      bar.style.backgroundColor = colors[score - 1] || "#ccc";
+
+      const feedbackList = document.getElementById("feedback-list");
+      feedbackList.innerHTML = "";
+      if (result.feedback.length === 0) {
+        feedbackList.innerHTML = '<li class="positive-feedback">Your password looks strong!</li>';
+      } else {
+        result.feedback.forEach(item => {
+          const li = document.createElement("li");
+          li.textContent = item;
+          feedbackList.appendChild(li);
+        });
+      }
+
+      updateCompositionBars(password);
+      updateMFAStatus(password, score);
+      updateStrengthExplanation(result);
+      updateTimeToCrack(result.entropy);
+    }
+
+    function resetDisplay() {
+      document.getElementById("strength-text").textContent = "-";
+      document.getElementById("strength-bar").style.width = "0%";
+      document.getElementById("feedback-list").innerHTML = "";
+      document.getElementById("time-to-crack").textContent = "-";
+      document.getElementById("mfa-status").textContent = "";
+      document.getElementById("strength-explanation").textContent = "";
+      ["lower", "upper", "numbers", "symbols"].forEach(type => {
+        document.getElementById("comp-" + type + "-fill").style.width = "0%";
+        document.getElementById("count-" + type).textContent = "0%";
+      });
+    }
+
+    function updateCompositionBars(password) {
+      const total = password.length || 1;
+      const counts = {
+        lower: (password.match(/[a-z]/g) || []).length,
+        upper: (password.match(/[A-Z]/g) || []).length,
+        numbers: (password.match(/[0-9]/g) || []).length,
+        symbols: (password.match(/[!@#$%^&*(),.?":{}|<>]/g) || []).length,
+      };
+
+      const percent = count => ((count / total) * 100).toFixed(1) + "%";
+      for (const type in counts) {
+        document.getElementById("comp-" + type + "-fill").style.width = percent(counts[type]);
+        document.getElementById("count-" + type).textContent = percent(counts[type]);
+      }
+    }
+
+    function updateMFAStatus(password, score) {
+      const mfaDiv = document.getElementById("mfa-status");
+      if (!password) return (mfaDiv.textContent = "");
+      if (score < 3) {
+        mfaDiv.innerHTML = "🔒 <strong>MFA Recommended:</strong> Weak password. Enable multi-factor authentication.";
+        mfaDiv.style.color = "#dc3545";
+      } else {
+        mfaDiv.innerHTML = "✅ <strong>MFA Ready:</strong> Strong enough for MFA.";
+        mfaDiv.style.color = "#28a745";
+      }
+    }
+
+    function updateStrengthExplanation(result) {
+      const expl = document.getElementById("strength-explanation");
+      if (!result || !result.entropy) return (expl.textContent = "");
+      expl.textContent = `Entropy: ${result.entropy.toFixed(2)} bits — higher is stronger.`;
+    }
+
+    function updateTimeToCrack(entropyBits) {
+      const guesses = Math.pow(2, entropyBits);
+      const seconds = guesses / 1e12;
+      const timeElem = document.getElementById("time-to-crack");
+
+      if (!seconds || seconds <= 0) return (timeElem.textContent = "-");
+
+      const units = [
+        { label: "years", seconds: 31536000 },
+        { label: "days", seconds: 86400 },
+        { label: "hours", seconds: 3600 },
+        { label: "minutes", seconds: 60 },
+        { label: "seconds", seconds: 1 },
+      ];
+
+      for (const unit of units) {
+        if (seconds >= unit.seconds) {
+          const value = seconds / unit.seconds;
+          timeElem.textContent = value > 1e12
+            ? value.toExponential(2) + " " + unit.label
+            : value.toFixed(2) + " " + unit.label;
+          return;
+        }
+      }
+      timeElem.textContent = seconds.toFixed(2) + " seconds";
+    }
+  </script>
+</body>
+</html>
